@@ -7,5 +7,3 @@ dependencies:
 - pip>=19.0
 - conda>=4.6
 - patchelf=0.9  # only works on Linux; comment this line out on Mac
-- pip:
-    - -r ./requirements.txt

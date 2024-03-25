@@ -41,7 +41,7 @@ RUN wget --quiet https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86
 
 RUN apt-get install -y curl grep sed dpkg && \
     TINI_VERSION=`curl https://github.com/krallin/tini/releases/latest | grep -o "/v.*\"" | sed 's:^..\(.*\).$:\1:'` && \
-    curl -L "https://github.com/krallin/tini/releases/download/v${TINI_VERSION}/tini_${TINI_VERSION}.deb" > tini.deb && \
+    curl -L "https://github.com/krallin/tini/releases/download/v0.19.0/tini_0.19.0.deb" > tini.deb&& \
     dpkg -i tini.deb && \
     rm tini.deb && \
     apt-get clean \
@@ -53,7 +53,11 @@ RUN conda update -y --name base conda \
 
 
 # ========== Tensorflow dependencies ==========
-RUN apt-get update \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    && apt-key adv --fetch-keys https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64/7fa2af80.pub \
+    && echo "deb https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1804/x86_64 /" > /etc/apt/sources.list.d/cuda.list \
+    && echo "deb https://developer.download.nvidia.com/compute/machine-learning/repos/ubuntu1804/x86_64 /" > /etc/apt/sources.list.d/nvidia-ml.list \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         build-essential \
         cuda-command-line-tools-${CUDA/./-} \
@@ -147,22 +151,48 @@ ENV LD_LIBRARY_PATH ${LD_LIBRARY_PATH}:/usr/lib/nvidia-000
 COPY ./environment.yml /tmp/environment.yml
 COPY ./requirements.txt /tmp/requirements.txt
 
-# NOTE: Don't separate the Mujoco key echo and remove commands into separate
-# run commands! Otherwise your key will be readable by anyone who has access
-# To the container. We need the key in order to compile mujoco_py.
+# # NOTE: Don't separate the Mujoco key echo and remove commands into separate
+# # run commands! Otherwise your key will be readable by anyone who has access
+# # To the container. We need the key in order to compile mujoco_py.
 RUN echo "${MJKEY}" > ~/.mujoco/mjkey.txt \
     && sed -i -e 's/^tensorflow==/tensorflow-gpu==/g' /tmp/requirements.txt \
-    && conda env update -f /tmp/environment.yml \
+    && conda env create -f /tmp/environment.yml \
+    && echo "conda activate softlearning" >> ~/.bashrc \
+    && echo "cd ~/softlearning" >> ~/.bashrc \
+    && echo "git config --global --add safe.directory /root/softlearning" >> ~/.bashrc \
+    && echo "pip install -r /tmp/requirements.txt" >> ~/.bashrc \
+    && echo "pip install opencv-python --only-binary=:all:" >> ~/.bashrc \
+    && echo "pip install git+https://github.com/deepmind/dm_control.git@0277e4352c57287c9f8497cb600a2bbe6d82ac45" >> ~/.bashrc \
+    && echo "pip install git+https://github.com/avisingh599/multiworld.git@19bf319422c0016260166bf64e194552bf2a9e68" >> ~/.bashrc \
+    && echo "pip install git+https://github.com/hartikainen/mujoco-py.git@29fcd26290c9417aef0f82d0628d29fa0dbf0fab" >> ~/.bashrc \
+    && echo "pip install git+https://github.com/hartikainen/serializable.git@76516385a3a716ed4a2a9ad877e2d5cbcf18d4e6" >> ~/.bashrc \
+    && echo "export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/usr/lib/nvidia-384" >> ~/.bashrc \
+    && echo "export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so" >> ~/.bashrc \
+    && echo "pip install -e ." >> ~/.bashrc \
     && conda clean --all -y \
     && rm ~/.mujoco/mjkey.txt
 
-RUN echo "conda activate softlearning" >> ~/.bashrc \
-    && echo "cd ~/softlearning" >> ~/.bashrc
 
-#Hack for gpu rendering for mujoco_py
+    # Install also the right multiworld version
+    #  pip install git+https://github.com/avisingh599/multiworld.git@19bf319422c0016260166bf64e194552bf2a9e68
+    # mujoco-py fixed by installing the correct version from git
+    # pip install git+https://github.com/hartikainen/mujoco-py.git@29fcd26290c9417aef0f82d0628d29fa0dbf0fab
+    # Path to the nvidia-drivers added to the LD_LIBRARY_PATH
+    # export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/lib/nvidia-384
+    # OPenGL Not initialized error fix by
+    # export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libGLEW.so
+    # To fix the error with 'FeedforwardGaussianPolicy' object has no attribute '_Serializable__initialize'
+    # pip install git+https://github.com/hartikainen/serializable.git@76516385a3a716ed4a2a9ad877e2d5cbcf18d4e6
+    
+RUN echo "cd ~/.mujoco" >> ~/.bashrc \
+    && echo "wget https://mujoco.org/download/mujoco210-linux-x86_64.tar.gz" >> ~/.bashrc \
+    && echo "tar -xvzf mujoco210-linux-x86_64.tar.gz" >> ~/.bashrc \
+    && echo "rm mujoco210-linux-x86_64.tar.gz" >> ~/.bashrc 
+
+# # #Hack for gpu rendering for mujoco_py
 RUN mkdir -p /usr/lib/nvidia-384
 ENV LD_LIBRARY_PATH ${LD_LIBRARY_PATH}:/usr/lib/nvidia-384
 
-# =========== Container Entrypoint =============
+# # # =========== Container Entrypoint =============
 COPY ./docker/entrypoint.sh /entrypoint.sh
 ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]
